@@ -1,0 +1,60 @@
+/* ==========================================================================
+   Ambient / chrome animations.
+   Lyric motion itself is computed per-frame from audio.currentTime in
+   js/lyric-engine.js so it stays in sync when seeking — these keyframes are
+   only for UI chrome and idle states.
+   ========================================================================== */
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.35); }
+}
+
+@keyframes gate-in {
+  from { opacity: 0; filter: blur(14px); letter-spacing: 0.2em; }
+  to { opacity: 1; filter: blur(0); }
+}
+
+@keyframes gate-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes flicker-in {
+  0% { opacity: 0; }
+  8% { opacity: 0.9; }
+  10% { opacity: 0.1; }
+  18% { opacity: 1; }
+  22% { opacity: 0.35; }
+  40%, 100% { opacity: 1; }
+}
+
+@keyframes hud-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes toast {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.gate__dot { animation: breathe 2.4s ease-in-out infinite; }
+.gate__kicker { animation: gate-in 2.2s var(--ease-out) both; }
+.gate__title span:first-child { animation: gate-in 2.4s 0.2s var(--ease-out) both; }
+.gate__title span:last-child { animation: gate-in 2.6s 0.55s var(--ease-out) both; }
+.gate__btn { animation: gate-rise 1.6s 1.1s var(--ease-out) both; }
+.gate__hint { animation: gate-rise 1.6s 1.4s var(--ease-out) both; }
+
+.hud { animation: hud-in 1.4s 0.3s var(--ease-out) both; }
+.hud__section { display: inline-block; transition: opacity 0.6s, letter-spacing 1.2s var(--ease-out); }
+.hud__section.is-changing { animation: flicker-in 0.9s linear; }
+
+.local-badge { animation: flicker-in 1.2s linear both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

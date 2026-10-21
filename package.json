@@ -1,0 +1,20 @@
+{
+  "name": "bleachers-lyric-visualizer",
+  "version": "1.0.0",
+  "description": "A cinematic, audio-reactive music lyric visualizer for Bleachers - Merry Christmas, Please Don't Call",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node server.mjs",
+    "align": "tools\\alignment\\.venv\\Scripts\\python.exe tools\\alignment\\align.py --apply"
+  },
+  "keywords": [
+    "bleachers",
+    "lyric-visualizer",
+    "web-audio",
+    "canvas",
+    "ascii-art"
+  ],
+  "license": "ISC"
+}
