@@ -7,6 +7,7 @@
  */
 
 import { SECTIONS } from "./lyrics.js";
+import { buildGrid, printGrid } from "./ascii-lyrics.js";
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -45,6 +46,7 @@ export class LyricEngine {
     this.tearMap = tearMap;
     this.reduced = reducedMotion;
     this.fx = true;
+    this.lyricStyle = "ascii"; // "ascii" | "blocks" | "cyber" | "contour" | "minimal" | "solid"
     this.timeline = [];
     this.nodes = new Map(); // id -> node record
     this.ghosts = new Map();
@@ -54,6 +56,13 @@ export class LyricEngine {
   }
 
   setFx(on) { this.fx = on; }
+
+  setLyricStyle(style) {
+    this.lyricStyle = style;
+    for (const node of this.nodes.values()) {
+      node.lastAsciiFrame = -1;
+    }
+  }
 
   /** Accepts the lyric array (possibly with null timings) and precomputes phases. */
   setTimeline(lines, duration = 0) {
@@ -70,7 +79,9 @@ export class LyricEngine {
       let outStart = L.end + HOLD;
       if (next) outStart = Math.min(outStart, next.start - next.a.lead);
       L.outStart = Math.max(outStart, L.start + 0.3);
-      L.outEnd = L.outStart + L.a.outDur;
+      const effectiveOutDur = next && (next.start - L.end < 0.6) ? 0.32 : L.a.outDur;
+      L.effectiveOutDur = effectiveOutDur;
+      L.outEnd = L.outStart + effectiveOutDur;
     }
     this.timeline = timed;
     // drop all DOM so changed timings / texts rebuild cleanly
@@ -101,13 +112,34 @@ export class LyricEngine {
   // ------------------------------------------------------------- DOM build
 
   #build(L) {
-    const el = document.createElement("p");
-    el.className = "lyric";
+    const el = document.createElement("div");
+    el.className = "lyric is-ascii-mode";
+    el.setAttribute("role", "text");
+    el.setAttribute("aria-label", L.text);
     el.dataset.text = L.text;
     el.dataset.anim = L.animation;
     el.dataset.section = L.section;
     el.dataset.glitch = "";
     if (L.animation === "impact") el.classList.add("is-impact");
+
+    // Primary ASCII art typography element
+    const asciiEl = document.createElement("pre");
+    asciiEl.className = "lyric__ascii";
+    asciiEl.setAttribute("aria-hidden", "true");
+    el.appendChild(asciiEl);
+
+    // Subtitle bar with section tag & exact text
+    const subEl = document.createElement("div");
+    subEl.className = "lyric__sub";
+    subEl.setAttribute("aria-hidden", "true");
+    const secLabel = SECTIONS[L.section]?.label || L.section;
+    subEl.innerHTML = `<span class="lyric__sub-tag">${secLabel}</span><span class="lyric__sub-text">${L.text}</span>`;
+    el.appendChild(subEl);
+
+    // Solid typography container (for solid mode fallback)
+    const solidEl = document.createElement("p");
+    solidEl.className = "lyric__solid";
+    solidEl.setAttribute("aria-hidden", "true");
 
     const words = [];
     const chars = [];
@@ -128,9 +160,10 @@ export class LyricEngine {
         charCursor++;
       }
       words.push(wordRec);
-      el.appendChild(w);
-      if (wi < tokens.length - 1) el.appendChild(document.createTextNode(" "));
+      solidEl.appendChild(w);
+      if (wi < tokens.length - 1) solidEl.appendChild(document.createTextNode(" "));
     });
+    el.appendChild(solidEl);
 
     const echoes = [];
     if (L.animation === "echo") {
@@ -139,12 +172,12 @@ export class LyricEngine {
         e.className = "lyric__echo";
         e.setAttribute("aria-hidden", "true");
         e.textContent = L.text;
-        el.appendChild(e);
+        solidEl.appendChild(e);
         echoes.push(e);
       }
     }
     this.container.appendChild(el);
-    return { el, words, chars, echoes, L, last: "" };
+    return { el, asciiEl, subEl, solidEl, words, chars, echoes, L, last: "", lastAsciiFrame: -1 };
   }
 
   // ------------------------------------------------------------- per-line frame
@@ -171,7 +204,8 @@ export class LyricEngine {
     const { L, el } = node;
     const A = L.a;
     const pin = clamp01((t - L.inStart) / A.inDur);
-    const pout = clamp01((t - L.outStart) / A.outDur);
+    const outDur = L.effectiveOutDur || A.outDur;
+    const pout = clamp01((t - L.outStart) / outDur);
     const ein = easeOutCubic(pin);
     const eout = easeInCubic(pout);
     const fadeOut = 1 - easeOutQuad(pout);
@@ -235,7 +269,9 @@ export class LyricEngine {
     if (this.fx) scale *= 1 + m.bass * 0.035 + m.beatPulse * 0.008;
     tx += Math.sin(t * 0.37 + L.id) * 3;
 
-    const g = this.#glitchAmount(L, t, m);
+    const gRaw = this.#glitchAmount(L, t, m);
+    // ASCII lettering stays crisp: no SVG tearing / heavy slicing while it is the active style
+    const g = this.lyricStyle !== "solid" ? Math.min(0.3, gRaw) : gRaw;
     const torn = g > 0.38;
     const filter = `${torn ? "url(#tear) " : ""}blur(${blur.toFixed(2)}px)`;
     const sig = `${opacity.toFixed(3)}|${tx.toFixed(1)}|${ty.toFixed(1)}|${scale.toFixed(4)}|${filter}|${lsAdd.toFixed(3)}|${g.toFixed(2)}`;
@@ -259,6 +295,75 @@ export class LyricEngine {
         el.style.setProperty("--sx2", ((hash(seed + 5) - 0.5) * 46 * g).toFixed(1));
       } else {
         el.style.setProperty("--slice-o", "0");
+      }
+    }
+
+    // ASCII art render update
+    if (this.lyricStyle !== "solid") {
+      if (!el.classList.contains("is-ascii-mode")) {
+        el.classList.add("is-ascii-mode");
+        el.classList.remove("is-solid-mode");
+      }
+
+      let activeStyle = this.lyricStyle;
+      if (activeStyle === "ascii") {
+        if (L.section.startsWith("chorus")) activeStyle = "slant";
+        else if (L.section === "bridge") activeStyle = "slant";
+        else if (L.section === "outro") activeStyle = "slant";
+        else activeStyle = "slant";
+      }
+
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const isMobile = vw <= 640;
+      const isLandscapeMobile = isMobile && vh < 500 && vw > vh;
+      const grid = buildGrid(L.text, { style: activeStyle, isMobile, viewportWidth: vw });
+      const cols = grid.cols;
+      const rows = grid.totalRows;
+
+      // Font size calculated so the text fills the stage comfortably with optimal legibility
+      const stageW = this.container.clientWidth || vw;
+      const widthFactor = isMobile ? (vw <= 380 ? 0.96 : 0.93) : 0.90;
+      const heightFactor = isLandscapeMobile ? 0.70 : (isMobile ? 0.58 : 0.52);
+      const fsByWidth = (stageW * widthFactor) / (cols * 0.60);
+      const fsByHeight = (vh * heightFactor) / (rows * 1.15);
+      const minFs = isMobile ? (vw <= 380 ? 6.5 : 7.2) : 9;
+      const maxFs = isMobile ? 14 : 18;
+      const fs = Math.max(minFs, Math.min(maxFs, fsByWidth, fsByHeight));
+      if (node.fs !== fs) {
+        node.fs = fs;
+        node.asciiEl.style.fontSize = `${fs.toFixed(2)}px`;
+        node.lastAsciiFrame = -1;
+      }
+
+      let revealProgress = 1;
+      if (L.animation === "letters" || L.animation === "words") {
+        const revealDur = Math.min(2.4, Math.max(0.4, (L.end - L.start) * 0.7));
+        revealProgress = clamp01((t - (L.start - 0.06)) / revealDur);
+      }
+
+      const lively = m.beatPulse > 0.25 || g > 0.1;
+      const frameSlot = Math.floor(t * (lively ? 18 : 8)) + (revealProgress < 1 ? Math.floor(revealProgress * 60) * 1000 : 0);
+      if (frameSlot !== node.lastAsciiFrame) {
+        node.lastAsciiFrame = frameSlot;
+        const scramble = g * 0.4 + (m.beatPulse > 0.35 ? m.beatPulse * 0.3 : 0);
+
+        const byWord = L.animation === "words";
+        const asciiText = printGrid(grid, {
+          scramble,
+          reveal: revealProgress,
+          byWord,
+          time: t,
+          seed: L.id,
+        });
+
+        if (node.asciiEl.textContent !== asciiText) {
+          node.asciiEl.textContent = asciiText;
+        }
+      }
+    } else {
+      if (!el.classList.contains("is-solid-mode")) {
+        el.classList.add("is-solid-mode");
+        el.classList.remove("is-ascii-mode");
       }
     }
 

@@ -139,7 +139,22 @@ function toggleFx() {
 }
 if (!state.fx) { state.fx = true; toggleFx(); }
 
+const LYRIC_STYLES = ["ascii", "slant", "standard", "blocks", "shadow", "solid"];
+let lyricStyleIdx = 0;
+
+function cycleLyricStyle() {
+  lyricStyleIdx = (lyricStyleIdx + 1) % LYRIC_STYLES.length;
+  const current = LYRIC_STYLES[lyricStyleIdx];
+  engine.setLyricStyle(current);
+  const btn = $("btn-lyric-style");
+  if (btn) {
+    btn.textContent = `lyric: ${current}`;
+    btn.classList.toggle("is-on", current !== "solid");
+  }
+}
+
 $("btn-ascii").addEventListener("click", toggleAscii);
+$("btn-lyric-style").addEventListener("click", cycleLyricStyle);
 $("btn-color").addEventListener("click", toggleColor);
 $("btn-fx").addEventListener("click", toggleFx);
 $("btn-editor").addEventListener("click", () => editor.toggle());
@@ -169,9 +184,11 @@ document.addEventListener("keydown", (e) => {
     case "m": case "M": player.toggleMute(); break;
     case "f": case "F": player.toggleFullscreen(); break;
     case "a": case "A": toggleAscii(); break;
+    case "l": case "L": cycleLyricStyle(); break;
     case "c": case "C": toggleColor(); break;
     case "v": case "V": toggleFx(); break;
     case "e": case "E": editor.toggle(); break;
+    case "Escape": if (editor.isOpen) editor.close(); break;
     case "Home": player.seek(0); break;
     default: return;
   }
@@ -241,8 +258,25 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-if (new URLSearchParams(location.search).has("editor")) editor.open();
+const urlParams = new URLSearchParams(location.search);
+if (urlParams.has("editor")) editor.open();
+if (urlParams.has("style")) {
+  const s = urlParams.get("style");
+  engine.setLyricStyle(s);
+  const btn = $("btn-lyric-style");
+  if (btn) btn.textContent = `lyric: ${s}`;
+}
+if (urlParams.has("t")) {
+  const targetT = parseFloat(urlParams.get("t"));
+  if (Number.isFinite(targetT)) {
+    player.seek(targetT);
+    gate.classList.add("is-gone");
+  }
+}
 wake();
 
 // debugging / automated testing handle
 window.__viz = { player, engine, editor, lines, analyzer };
+window.__player = player;
+window.__engine = engine;
+window.__editor = editor;
